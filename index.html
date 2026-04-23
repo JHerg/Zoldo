@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Zelda-Style Adventure</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <div id="game-wrapper">
+        <div id="hud">
+            <div class="hud-item">
+                <span class="icon">❤️</span> 
+                <span id="health-display">3 / 3</span>
+            </div>
+            <div class="hud-item">
+                <span class="icon">🎒</span> 
+                <span id="inventory-display">Leer</span>
+            </div>
+        </div>
+
+        <canvas id="gameCanvas" width="800" height="600"></canvas>
+
+        <div id="dialog-box" class="hidden">
+            <p id="dialog-text">Es ist gefährlich, alleine zu gehen!</p>
+            <p class="blink">Drücke Leertaste...</p>
+        </div>
+    </div>
+
+    <script src="game.js"></script>
+</body>
+</html>
