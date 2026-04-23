@@ -1,205 +1,483 @@
 const canvas = document.getElementById("gameCanvas");
 const ctx = canvas.getContext("2d");
 
-// --- GRUNDLEGENDE SETTINGS ---
+// --- GRUNDLEGENDE SETTINGS & KONSTANTEN ---
 const TILE_SIZE = 40;
-const COLS = canvas.width / TILE_SIZE; // 20
-const ROWS = canvas.height / TILE_SIZE; // 15
+const VIEW_WIDTH = 800;
+const VIEW_HEIGHT = 600;
 
-// Steuerung
+// Rätsel- & Spielstatus
+const puzzles = { p1: false, p2: false, p3: false };
+let gameWon = false;
+let inDialog = false;
+let switchSequence = []; // Für das Logik-Rätsel
+
+// --- INPUT MANAGER ---
 const keys = { w: false, a: false, s: false, d: false, space: false };
 window.addEventListener("keydown", e => {
-    if (e.key === "w" || e.key === "ArrowUp") keys.w = true;
-    if (e.key === "a" || e.key === "ArrowLeft") keys.a = true;
-    if (e.key === "s" || e.key === "ArrowDown") keys.s = true;
-    if (e.key === "d" || e.key === "ArrowRight") keys.d = true;
+    if (["w", "ArrowUp"].includes(e.key.toLowerCase())) keys.w = true;
+    if (["a", "ArrowLeft"].includes(e.key.toLowerCase())) keys.a = true;
+    if (["s", "ArrowDown"].includes(e.key.toLowerCase())) keys.s = true;
+    if (["d", "ArrowRight"].includes(e.key.toLowerCase())) keys.d = true;
     if (e.key === " ") {
         keys.space = true;
-        schliesseDialog();
+        if (inDialog) closeDialog();
+        else interact();
     }
 });
 window.addEventListener("keyup", e => {
-    if (e.key === "w" || e.key === "ArrowUp") keys.w = false;
-    if (e.key === "a" || e.key === "ArrowLeft") keys.a = false;
-    if (e.key === "s" || e.key === "ArrowDown") keys.s = false;
-    if (e.key === "d" || e.key === "ArrowRight") keys.d = false;
+    if (["w", "ArrowUp"].includes(e.key.toLowerCase())) keys.w = false;
+    if (["a", "ArrowLeft"].includes(e.key.toLowerCase())) keys.a = false;
+    if (["s", "ArrowDown"].includes(e.key.toLowerCase())) keys.s = false;
+    if (["d", "ArrowRight"].includes(e.key.toLowerCase())) keys.d = false;
     if (e.key === " ") keys.space = false;
 });
 
-// --- DIE WELT (TILEMAP) ---
-// 0 = Boden, 1 = Wand, 2 = Schlüssel, 3 = Verschlossene Tür
-const map = [
-    [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
-    [1,0,0,0,1,0,0,0,0,0,1,0,0,0,0,0,0,0,0,1],
-    [1,0,0,0,1,0,0,0,0,0,1,0,0,2,0,0,0,0,0,1],
-    [1,0,0,0,1,0,0,0,0,0,1,0,0,0,0,0,0,0,0,1],
-    [1,0,0,0,1,1,1,3,1,1,1,1,1,1,1,1,1,0,0,1],
-    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,1],
-    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,1],
-    [1,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,1,0,0,1],
-    [1,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,1,0,0,1],
-    [1,0,0,0,1,1,1,1,0,0,0,1,1,1,1,1,1,0,0,1],
-    [1,0,0,0,0,0,0,1,0,0,0,1,0,0,0,0,0,0,0,1],
-    [1,0,0,0,0,0,0,1,0,0,0,1,0,0,0,0,0,0,0,1],
-    [1,0,0,0,0,0,0,1,0,0,0,1,0,0,0,0,0,0,0,1],
-    [1,0,0,0,0,0,0,1,0,0,0,1,0,0,0,0,0,0,0,1],
-    [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]
-];
-
-// --- SPIELER ---
+// --- ENTITIES ---
 const player = {
-    x: 400, // Startposition X (Mitte)
-    y: 400, // Startposition Y
-    width: 24,
-    height: 24,
-    speed: 4,
-    color: "#4CAF50", // Grün, typische Heldenfarbe
-    inventory: []
+    x: 0, y: 0, w: 24, h: 24, speed: 4, vx: 0, vy: 0
 };
+let ball = { x: 0, y: 0, w: 20, h: 20, vx: 0, vy: 0, startX: 0, startY: 0 };
+let statues = [];
+let switches = [];
+let npc = { x: 0, y: 0, w: 24, h: 24 };
 
-// --- DIALOG SYSTEM ---
-let inDialog = false;
-const dialogBox = document.getElementById("dialog-box");
-const dialogText = document.getElementById("dialog-text");
+// --- DIE WELT & MAP PARSING ---
+/* 
+Legende:
+W = Baum/Wand, ' ' = Gras, P = Spieler-Start, N = Trainer NPC
+O = Ball, 4 = Ball-Ziel, S = Stacheln
+X = Statue, 2 = Statuen-Ziel
+1 = Tor 1, 3 = Tor 2, 5 = Tor 3 (Finale)
+R, G, B = Blumen (Rot, Grün, Blau) - Hinweis für Schalter
+r, g, b = Schalter
+* = Goldener Ball (Ziel)
+*/
+const levelMapStr = [
+    "WWWWWWWWWWWWWWWWWWWWWWWWWWWWWW",
+    "WWWWWWWWWWWWWWWWWWWWWWWW 4WWWW",
+    "WW   B   G   R       3    WWWW",
+    "WW r WWWWWWWWWWWWWWWWWWWW SWWW",
+    "WW g WWWWWWWWWWWWWWWWWWWW S WW",
+    "WW b WWWWWWWWWWWWWWWWWWWW  SWW",
+    "WW   WWWWWWWWWWWWWWWWWWWW S SW",
+    "WWWWWWWWWWWWWWWWWWWWWWWWW  SWW",
+    "WWWWWWWWWWWW * 5          S WW",
+    "WWWWWWWWWWWWWWWWWWWWWWWWW S SW",
+    "WWWWWWWWWWWWWWWWWWWWWWWWW  SWW",
+    "WWWWWWWWWWWWWWWWWWWWWWWWW OWWW",
+    "WWWWWWWWWWWWWWWWWWWWWWWWW1WWWW",
+    "WWWWWWWWWWWWWWWWWWWWWWWWW WWWW",
+    "WWWWWWWWWWWWWWWWWWWWWWWWW WWWW",
+    "WWWWWWWWWWWWWWWWWWWWWWWWW2WWWW",
+    "WWWWWWWWWWWWWWWWWWWWWWWWW WWWW",
+    "WWWWWWWWWWWWWWWWWWWWWWWW2 2WWW",
+    "WWWW   N       X X X WWWWWWWWW",
+    "WWWW P         WWWWWWWWWWWWWWW",
+    "WWWWWWWWWWWWWWWWWWWWWWWWWWWWWW",
+    "WWWWWWWWWWWWWWWWWWWWWWWWWWWWWW"
+];
+let mapGrid = [];
+let COLS = levelMapStr[0].length;
+let ROWS = levelMapStr.length;
 
-function zeigeDialog(text) {
-    dialogText.innerText = text;
-    dialogBox.classList.remove("hidden");
-    inDialog = true;
-}
-
-function schliesseDialog() {
-    if (inDialog) {
-        dialogBox.classList.add("hidden");
-        inDialog = false;
+function initMap() {
+    for (let r = 0; r < ROWS; r++) {
+        let rowArray = [];
+        for (let c = 0; c < COLS; c++) {
+            let char = levelMapStr[r][c];
+            let px = c * TILE_SIZE;
+            let py = r * TILE_SIZE;
+            
+            if (char === 'P') { player.x = px + 8; player.y = py + 8; char = ' '; }
+            if (char === 'N') { npc = { x: px + 8, y: py + 8, w: 24, h: 24 }; char = ' '; }
+            if (char === 'X') { statues.push({ x: px + 4, y: py + 4, w: 32, h: 32 }); char = ' '; }
+            if (char === 'O') { 
+                ball = { x: px + 10, y: py + 10, w: 20, h: 20, vx: 0, vy: 0, startX: px + 10, startY: py + 10 }; 
+                char = ' '; 
+            }
+            if (char === 'r' || char === 'g' || char === 'b') { 
+                switches.push({ x: px + 8, y: py + 8, w: 24, h: 24, color: char, pressed: false }); 
+                char = ' '; 
+            }
+            rowArray.push(char);
+        }
+        mapGrid.push(rowArray);
     }
 }
 
-// --- KOLLISION & INTERAKTION ---
-// Prüft, ob ein Rechteck (Spieler) mit einer bestimmten Kachel-Art kollidiert
-function checkCollision(newX, newY) {
-    // Die 4 Ecken des Spielers berechnen
-    let left = Math.floor(newX / TILE_SIZE);
-    let right = Math.floor((newX + player.width - 1) / TILE_SIZE);
-    let top = Math.floor(newY / TILE_SIZE);
-    let bottom = Math.floor((newY + player.height - 1) / TILE_SIZE);
+// --- KOLLISION & PHYSIK ---
+function checkAABB(a, b) {
+    return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+}
 
-    // Kacheln an den Ecken prüfen
-    let tiles = [
-        map[top][left], map[top][right],
-        map[bottom][left], map[bottom][right]
-    ];
+function isSolid(rect) {
+    let left = Math.floor(rect.x / TILE_SIZE);
+    let right = Math.floor((rect.x + rect.w - 0.1) / TILE_SIZE);
+    let top = Math.floor(rect.y / TILE_SIZE);
+    let bottom = Math.floor((rect.y + rect.h - 0.1) / TILE_SIZE);
 
-    // Kollision mit Wänden (1) oder verschlossenen Türen (3)
-    if (tiles.includes(1) || tiles.includes(3)) {
-        return true; 
+    for (let r = top; r <= bottom; r++) {
+        for (let c = left; c <= right; c++) {
+            if (r < 0 || r >= ROWS || c < 0 || c >= COLS) return true;
+            let tile = mapGrid[r][c];
+            if (tile === 'W' || tile === '1' || tile === '3' || tile === '5') return true;
+        }
     }
     return false;
 }
 
-function checkInteraction() {
-    // Zentrum des Spielers für Items
-    let centerX = Math.floor((player.x + player.width/2) / TILE_SIZE);
-    let centerY = Math.floor((player.y + player.height/2) / TILE_SIZE);
+// --- INTERAKTION & DIALOG ---
+function showDialog(text) {
+    document.getElementById("dialog-text").innerText = text;
+    document.getElementById("dialog-box").classList.remove("hidden");
+    inDialog = true;
+}
 
-    let currentTile = map[centerY][centerX];
+function closeDialog() {
+    document.getElementById("dialog-box").classList.add("hidden");
+    inDialog = false;
+}
 
-    // 2 = Schlüssel aufgesammelt
-    if (currentTile === 2) {
-        player.inventory.push("Schlüssel");
-        document.getElementById("inventory-display").innerText = "1x Schlüssel 🔑";
-        map[centerY][centerX] = 0; // Schlüssel vom Boden entfernen
-        zeigeDialog("Du hast den goldenen Schlüssel gefunden!");
+function getDistance(obj1, obj2) {
+    let cx1 = obj1.x + obj1.w/2; let cy1 = obj1.y + obj1.h/2;
+    let cx2 = obj2.x + obj2.w/2; let cy2 = obj2.y + obj2.h/2;
+    return Math.hypot(cx1 - cx2, cy1 - cy2);
+}
+
+function interact() {
+    // 1. Schalter Logik (Rätsel 3)
+    let swHit = false;
+    for (let sw of switches) {
+        if (getDistance(player, sw) < TILE_SIZE * 1.5 && !sw.pressed) {
+            sw.pressed = true;
+            switchSequence.push(sw.color);
+            checkSwitchPuzzle();
+            swHit = true;
+            break;
+        }
+    }
+    if (swHit) return;
+
+    // 2. Trainer NPC Dialog
+    if (getDistance(player, npc) < TILE_SIZE * 2) {
+        showDialog("Trainer:\nHallo, junges Talent! Du suchst den Goldenen Ball der Weisheit?\nBeweise dich in 3 Prüfungen:\n\n1. Taktik (Osten): Schiebe die Statuen auf die gelben Platten (Sturm-Dreieck).\n2. Ballkontrolle (Norden): Dribble den Ball durch den Stachelpfad, ohne dass er die Stacheln berührt.\n3. Spielintelligenz (Westen): Drücke die Schalter anhand der Blumen.\n\nViel Erfolg!");
+    }
+}
+
+function openDoor(doorChar) {
+    for (let r = 0; r < ROWS; r++) {
+        for (let c = 0; c < COLS; c++) {
+            if (mapGrid[r][c] === doorChar) mapGrid[r][c] = ' ';
+        }
+    }
+}
+
+function updateHUD() {
+    let count = (puzzles.p1 ? 1 : 0) + (puzzles.p2 ? 1 : 0) + (puzzles.p3 ? 1 : 0);
+    document.getElementById("puzzle-display").innerText = `Rätsel gelöst: ${count}/3`;
+}
+
+// --- RÄTSEL LOGIK ---
+function checkPuzzles() {
+    // Rätsel 1: Statuen-Formation
+    if (!puzzles.p1) {
+        let allOnPlates = true;
+        for (let s of statues) {
+            let cx = s.x + s.w/2;
+            let cy = s.y + s.h/2;
+            let c = Math.floor(cx / TILE_SIZE);
+            let r = Math.floor(cy / TILE_SIZE);
+            if (mapGrid[r] && mapGrid[r][c] !== '2') allOnPlates = false;
+        }
+        if (allOnPlates) {
+            puzzles.p1 = true;
+            openDoor('1');
+            showDialog("Rätsel 1 gelöst!\n\nPerfekte Formation! Das erste Tor hat sich geöffnet.");
+            updateHUD();
+        }
     }
 
-    // Vor der Tür stehen und versuchen sie zu öffnen (Tile 3 angrenzend)
-    let frontTileY = Math.floor((player.y - 5) / TILE_SIZE);
-    if (map[frontTileY][centerX] === 3 && keys.w) {
-        if (player.inventory.includes("Schlüssel")) {
-            map[frontTileY][centerX] = 0; // Tür wird zu Boden
-            player.inventory.pop(); // Schlüssel verbraucht
-            document.getElementById("inventory-display").innerText = "Leer";
-            zeigeDialog("Die schwere Tür hat sich geöffnet!");
+    // Rätsel 2: Dribbling (Zielplatte)
+    if (!puzzles.p2) {
+        let col = Math.floor((ball.x + ball.w/2) / TILE_SIZE);
+        let row = Math.floor((ball.y + ball.h/2) / TILE_SIZE);
+        if (mapGrid[row] && mapGrid[row][col] === '4') {
+            puzzles.p2 = true;
+            openDoor('3');
+            showDialog("Rätsel 2 gelöst!\n\nWas für ein Weltklasse-Dribbling! Das zweite Tor ist offen.");
+            updateHUD();
+        }
+    }
+
+    // Sieg: Goldener Ball
+    if (!gameWon) {
+        let col = Math.floor((player.x + player.w/2) / TILE_SIZE);
+        let row = Math.floor((player.y + player.h/2) / TILE_SIZE);
+        if (mapGrid[row] && mapGrid[row][col] === '*') {
+            gameWon = true;
+            showDialog("Glückwunsch!\n\nDu hast den legendären Goldenen Ball der Weisheit gefunden. Du bist ein echter Fußball-Abenteurer!");
+        }
+    }
+}
+
+function checkSwitchPuzzle() {
+    if (switchSequence.length === 3) {
+        // Hinweis sind die Blumen: Blau (B), Grün (G), Rot (R)
+        if (switchSequence[0] === 'b' && switchSequence[1] === 'g' && switchSequence[2] === 'r') {
+            puzzles.p3 = true;
+            openDoor('5');
+            showDialog("Rätsel 3 gelöst!\n\nGeniale Spielintelligenz. Die letzte Tür zum Goldenen Ball öffnet sich!");
+            updateHUD();
         } else {
-            zeigeDialog("Die Tür ist fest verschlossen. Du brauchst einen Schlüssel.");
+            showDialog("Falsche Reihenfolge!\n\nSchau dir die farbigen Blumen genau an. Die Schalter wurden zurückgesetzt.");
+            switches.forEach(s => s.pressed = false);
+            switchSequence = [];
         }
     }
 }
 
-// --- GAME LOOP ---
+// --- GAME LOOP: UPDATE ---
 function update() {
-    if (inDialog) return; // Wenn Dialog offen, keine Bewegung
+    if (inDialog) return;
 
-    let nextX = player.x;
-    let nextY = player.y;
+    // 1. Spieler-Bewegung berechnen
+    player.vx = 0; player.vy = 0;
+    if (keys.w) player.vy = -player.speed;
+    if (keys.s) player.vy = player.speed;
+    if (keys.a) player.vx = -player.speed;
+    if (keys.d) player.vx = player.speed;
 
-    if (keys.w) nextY -= player.speed;
-    if (keys.s) nextY += player.speed;
-    if (keys.a) nextX -= player.speed;
-    if (keys.d) nextX += player.speed;
-
-    // Nur auf der X-Achse bewegen, wenn keine Kollision
-    if (!checkCollision(nextX, player.y)) {
-        player.x = nextX;
-    }
-    // Nur auf der Y-Achse bewegen, wenn keine Kollision
-    if (!checkCollision(player.x, nextY)) {
-        player.y = nextY;
+    if (player.vx !== 0 && player.vy !== 0) {
+        let mag = Math.sqrt(2);
+        player.vx /= mag; player.vy /= mag;
     }
 
-    // Interaktionen prüfen (Items, Türen)
-    checkInteraction();
-}
-
-function draw() {
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-    // 1. Tilemap zeichnen
-    for (let row = 0; row < ROWS; row++) {
-        for (let col = 0; col < COLS; col++) {
-            let tile = map[row][col];
-            let x = col * TILE_SIZE;
-            let y = row * TILE_SIZE;
-
-            if (tile === 0) { // Boden
-                ctx.fillStyle = "#3e2723"; // Dunkles Braun
-                ctx.fillRect(x, y, TILE_SIZE, TILE_SIZE);
-            } else if (tile === 1) { // Wand
-                ctx.fillStyle = "#607d8b"; // Graugrün
-                ctx.fillRect(x, y, TILE_SIZE, TILE_SIZE);
-                ctx.strokeStyle = "#455a64"; // Wand-Kontur
-                ctx.strokeRect(x, y, TILE_SIZE, TILE_SIZE);
-            } else if (tile === 2) { // Schlüssel
-                ctx.fillStyle = "#3e2723"; // Boden unter Schlüssel
-                ctx.fillRect(x, y, TILE_SIZE, TILE_SIZE);
-                ctx.fillStyle = "gold";
-                ctx.beginPath();
-                ctx.arc(x + TILE_SIZE/2, y + TILE_SIZE/2, 8, 0, Math.PI*2);
-                ctx.fill();
-            } else if (tile === 3) { // Tür
-                ctx.fillStyle = "#5d4037"; // Holztür
-                ctx.fillRect(x, y, TILE_SIZE, TILE_SIZE);
-                ctx.fillStyle = "silver"; // Schlüsselloch
-                ctx.fillRect(x + TILE_SIZE/2 - 2, y + TILE_SIZE/2 - 4, 4, 8);
+    // 2. Spieler X-Kollision und Objektschieben
+    player.x += player.vx;
+    if (isSolid(player)) player.x -= player.vx;
+    else {
+        // Statuen
+        statues.forEach(s => {
+            if (checkAABB(player, s)) {
+                s.x += player.vx;
+                if (isSolid(s) || statues.some(other => other !== s && checkAABB(s, other))) {
+                    s.x -= player.vx; player.x -= player.vx; // Blockieren
+                }
             }
+        });
+        // Ball (kick)
+        if (checkAABB(player, ball)) {
+            ball.vx = player.vx * 1.5;
+            player.x -= player.vx; // Spieler stoppt leicht beim Kicken
         }
     }
 
-    // 2. Spieler zeichnen
-    ctx.fillStyle = player.color;
-    ctx.fillRect(player.x, player.y, player.width, player.height);
-    // Kleines Gesicht/Augen für die Richtung (hier stark vereinfacht immer nach unten)
-    ctx.fillStyle = "white";
-    ctx.fillRect(player.x + 4, player.y + 4, 4, 4);
-    ctx.fillRect(player.x + 16, player.y + 4, 4, 4);
+    // 3. Spieler Y-Kollision
+    player.y += player.vy;
+    if (isSolid(player)) player.y -= player.vy;
+    else {
+        statues.forEach(s => {
+            if (checkAABB(player, s)) {
+                s.y += player.vy;
+                if (isSolid(s) || statues.some(other => other !== s && checkAABB(s, other))) {
+                    s.y -= player.vy; player.y -= player.vy;
+                }
+            }
+        });
+        if (checkAABB(player, ball)) {
+            ball.vy = player.vy * 1.5;
+            player.y -= player.vy;
+        }
+    }
+
+    // 4. Ball Physik (Dribbling / Reibung)
+    ball.x += ball.vx;
+    if (isSolid(ball)) {
+        ball.x -= ball.vx; ball.vx *= -0.5; // Abprallen
+    }
+    ball.y += ball.vy;
+    if (isSolid(ball)) {
+        ball.y -= ball.vy; ball.vy *= -0.5;
+    }
+    ball.vx *= 0.9; // Gras-Reibung
+    ball.vy *= 0.9;
+    if (Math.abs(ball.vx) < 0.1) ball.vx = 0;
+    if (Math.abs(ball.vy) < 0.1) ball.vy = 0;
+
+    // Ball auf Stacheln prüfen
+    let bCol = Math.floor((ball.x + ball.w/2) / TILE_SIZE);
+    let bRow = Math.floor((ball.y + ball.h/2) / TILE_SIZE);
+    if (mapGrid[bRow] && mapGrid[bRow][bCol] === 'S') {
+        ball.x = ball.startX; ball.y = ball.startY;
+        ball.vx = 0; ball.vy = 0;
+        showDialog("Der Ball ist in die Stacheln gerollt und geplatzt!\n\nEin neuer Ball liegt am Startpunkt.");
+    }
+
+    // 5. Spielzustand checken
+    checkPuzzles();
 }
 
-function loop() {
+// --- ZEICHNEN DER GRAFIKEN (Ohne externe Bilder) ---
+function drawGrass(x, y) {
+    ctx.fillStyle = "#4CAF50";
+    ctx.fillRect(x, y, TILE_SIZE, TILE_SIZE);
+    ctx.fillStyle = "#388E3C";
+    ctx.fillRect(x + 8, y + 10, 4, 4);
+    ctx.fillRect(x + 24, y + 26, 4, 4);
+}
+
+function drawWall(x, y) {
+    drawGrass(x, y);
+    ctx.fillStyle = "#795548"; // Stamm
+    ctx.fillRect(x + 16, y + 20, 8, 20);
+    ctx.fillStyle = "#2e7d32"; // Blätterkrone
+    ctx.beginPath();
+    ctx.arc(x + 20, y + 15, 18, 0, Math.PI * 2);
+    ctx.fill();
+}
+
+function drawSpikes(x, y) {
+    ctx.fillStyle = "#B0BEC5";
+    ctx.fillRect(x, y, TILE_SIZE, TILE_SIZE);
+    ctx.fillStyle = "#455A64";
+    for(let i=0; i<2; i++) {
+        for(let j=0; j<2; j++) {
+            let sx = x + i*20 + 10;
+            let sy = y + j*20 + 15;
+            ctx.beginPath();
+            ctx.moveTo(sx, sy - 10);
+            ctx.lineTo(sx - 8, sy + 5);
+            ctx.lineTo(sx + 8, sy + 5);
+            ctx.fill();
+        }
+    }
+}
+
+function drawFlower(x, y, type) {
+    drawGrass(x, y);
+    let color = type === 'R' ? '#F44336' : (type === 'G' ? '#4CAF50' : '#2196F3');
+    ctx.fillStyle = "#8BC34A"; // Stiel
+    ctx.fillRect(x + 18, y + 20, 4, 15);
+    ctx.fillStyle = color; // Blütenblätter
+    ctx.beginPath();
+    ctx.arc(x + 20, y + 16, 8, 0, Math.PI*2);
+    ctx.fill();
+    ctx.fillStyle = "#FFEB3B"; // Mitte
+    ctx.beginPath();
+    ctx.arc(x + 20, y + 16, 4, 0, Math.PI*2);
+    ctx.fill();
+}
+
+function drawGoldenBall(x, y) {
+    drawGrass(x, y);
+    let glow = Math.abs(Math.sin(Date.now() / 200)) * 5;
+    ctx.fillStyle = "rgba(255, 215, 0, 0.4)";
+    ctx.beginPath();
+    ctx.arc(x + 20, y + 20, 15 + glow, 0, Math.PI*2);
+    ctx.fill();
+    ctx.fillStyle = "gold";
+    ctx.beginPath();
+    ctx.arc(x + 20, y + 20, 10, 0, Math.PI*2);
+    ctx.fill();
+}
+
+// --- GAME LOOP: DRAW ---
+function draw() {
+    // Kamera berechnen
+    let camX = Math.max(0, Math.min(player.x - VIEW_WIDTH/2 + player.w/2, COLS * TILE_SIZE - VIEW_WIDTH));
+    let camY = Math.max(0, Math.min(player.y - VIEW_HEIGHT/2 + player.h/2, ROWS * TILE_SIZE - VIEW_HEIGHT));
+
+    ctx.save();
+    ctx.translate(-camX, -camY);
+
+    // 1. Map zeichnen
+    for (let r = 0; r < ROWS; r++) {
+        for (let c = 0; c < COLS; c++) {
+            let tile = mapGrid[r][c];
+            let px = c * TILE_SIZE;
+            let py = r * TILE_SIZE;
+
+            // Basis-Gras
+            if ([' ', '2', '4', '1', '3', '5', 'R', 'G', 'B', 'S', '*'].includes(tile)) drawGrass(px, py);
+
+            if (tile === 'W') drawWall(px, py);
+            else if (tile === '2' || tile === '4') {
+                ctx.strokeStyle = "#FFEB3B";
+                ctx.lineWidth = 2;
+                ctx.strokeRect(px + 2, py + 2, TILE_SIZE - 4, TILE_SIZE - 4);
+                ctx.fillStyle = "rgba(255, 235, 59, 0.2)";
+                ctx.fillRect(px + 2, py + 2, TILE_SIZE - 4, TILE_SIZE - 4);
+            }
+            else if (tile === '1' || tile === '3' || tile === '5') {
+                ctx.fillStyle = "#5D4037"; // Holztür
+                ctx.fillRect(px, py, TILE_SIZE, TILE_SIZE);
+                ctx.fillStyle = "#3E2723";
+                ctx.fillRect(px + 10, py, 4, TILE_SIZE);
+                ctx.fillRect(px + 26, py, 4, TILE_SIZE);
+            }
+            else if (tile === 'S') drawSpikes(px, py);
+            else if (['R', 'G', 'B'].includes(tile)) drawFlower(px, py, tile);
+            else if (tile === '*') drawGoldenBall(px, py);
+        }
+    }
+
+    // 2. Schalter zeichnen
+    let colorMap = { 'r': '#F44336', 'g': '#4CAF50', 'b': '#2196F3' };
+    for (let sw of switches) {
+        ctx.fillStyle = "#9e9e9e";
+        ctx.fillRect(sw.x, sw.y, sw.w, sw.h);
+        ctx.fillStyle = sw.pressed ? "#fff" : colorMap[sw.color];
+        ctx.beginPath();
+        ctx.arc(sw.x + sw.w/2, sw.y + sw.h/2, 8, 0, Math.PI * 2);
+        ctx.fill();
+    }
+
+    // 3. Statuen zeichnen
+    for (let s of statues) {
+        ctx.fillStyle = "#757575";
+        ctx.fillRect(s.x, s.y, s.w, s.h);
+        ctx.fillStyle = "#9E9E9E";
+        ctx.fillRect(s.x + 4, s.y + 4, s.w - 8, s.h - 8);
+    }
+
+    // 4. Ball zeichnen
+    ctx.fillStyle = "#fff";
+    ctx.beginPath();
+    ctx.arc(ball.x + ball.w/2, ball.y + ball.h/2, ball.w/2, 0, Math.PI*2);
+    ctx.fill();
+    ctx.fillStyle = "#000"; // Fußball-Fünfecke Andeutung
+    ctx.fillRect(ball.x + 8, ball.y + 8, 4, 4);
+    ctx.fillRect(ball.x + 4, ball.y + 4, 3, 3);
+    ctx.fillRect(ball.x + 12, ball.y + 14, 3, 3);
+
+    // 5. NPC zeichnen
+    ctx.fillStyle = "#F44336"; // Roter Trainingsanzug
+    ctx.fillRect(npc.x, npc.y, npc.w, npc.h);
+    ctx.fillStyle = "#FFC107"; // Kopf
+    ctx.fillRect(npc.x + 4, npc.y - 8, 16, 16);
+    ctx.fillStyle = "#fff"; // Weiße Haare
+    ctx.fillRect(npc.x + 4, npc.y - 12, 16, 6);
+
+    // 6. Spieler zeichnen
+    ctx.fillStyle = "#2196F3"; // Blaues Trikot
+    ctx.fillRect(player.x, player.y, player.w, player.h);
+    ctx.fillStyle = "#FFC107"; // Kopf
+    ctx.fillRect(player.x + 4, player.y - 8, 16, 16);
+    ctx.fillStyle = "#fff"; // Trikotnummer
+    ctx.font = "10px Arial";
+    ctx.fillText("10", player.x + 6, player.y + 16);
+
+    ctx.restore();
+}
+
+// --- INITIALISIERUNG ---
+function gameLoop() {
     update();
     draw();
-    requestAnimationFrame(loop);
+    requestAnimationFrame(gameLoop);
 }
 
-// Spiel starten mit einem Begrüßungs-Dialog
-zeigeDialog("Willkommen im Verlies. Nutze W, A, S, D zur Bewegung. Finde einen Weg durch die Stahltür im Norden.");
-loop();
+initMap();
+showDialog("Willkommen zum Großen Fußball-Abenteuer!\n\nNutze [W, A, S, D] zur Bewegung. Suche den Trainer für deinen ersten Auftrag! Sprich mit ihm durch Drücken der [Leertaste].");
+gameLoop();
