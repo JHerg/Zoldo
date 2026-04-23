@@ -59,6 +59,7 @@ const ballState = {
 };
 
 let appMode = 'menu'; // 'menu', 'exhibition', 'career'
+let currentMatchType = 'exhibition'; 
 
 // --- 3. THREE.JS SETUP ---
 const scene = new THREE.Scene();
@@ -186,12 +187,23 @@ function generateAIProfile(skill) {
     };
 }
 
+// Hilfsfunktion für die Anzeige der Pokale
+function getPlayerDisplayName(player) {
+    if (!player) return "???";
+    let name = player.name;
+    if (player.trophies && player.trophies > 0) {
+        name += ` <span style="color:#facc15; font-size: 0.8em;">🏆${player.trophies}</span>`;
+    }
+    return name;
+}
+
 const UI = {
     showScreen(id) {
         document.querySelectorAll('.screen').forEach(el => el.classList.remove('active'));
         document.getElementById(id).classList.add('active');
         document.getElementById('menu-layer').classList.add('active');
         document.getElementById('ui-container').classList.add('hidden');
+        document.getElementById('status-message').classList.add('hidden'); // Bugfix: Message-Overlay entfernen
         appMode = 'menu';
     },
     hideMenu() {
@@ -225,7 +237,7 @@ const Career = {
     startNew() {
         const name = document.getElementById('input-player-name').value || "Spieler";
         const diffMult = parseFloat(document.getElementById('input-career-difficulty').value);
-        this.playerObj = { name: name, points: 0, isPlayer: true, skill: 0 };
+        this.playerObj = { name: name, points: 0, isPlayer: true, skill: 0, trophies: 0 };
         
         // Generiere 15 KI Gegner. Realistische Punkte, sodass Top 3 machbar ist.
         this.players = [this.playerObj];
@@ -235,7 +247,8 @@ const Career = {
                 name: AI_NAMES[i],
                 points: Math.floor(2800 * Math.pow(0.75, i)),
                 isPlayer: false,
-                skill: Math.max(0.1, Math.min(1.5, skill)) // Capping, falls "Schwer" gewählt
+                skill: Math.max(0.1, Math.min(1.5, skill)),
+                trophies: Math.floor(6 * Math.pow(0.7, i)) // Veterans haben bereits Pokale
             });
         }
         this.currentTournamentIndex = 0;
@@ -251,18 +264,30 @@ const Career = {
     updateHub() {
         this.updateRankings();
         const rank = this.players.indexOf(this.playerObj) + 1;
-        document.getElementById('hub-title').innerText = this.playerObj.name;
+        document.getElementById('hub-title').innerHTML = getPlayerDisplayName(this.playerObj);
         document.getElementById('hub-rank').innerText = rank;
         document.getElementById('hub-points').innerText = this.playerObj.points;
         
         const nextT = this.tournaments[this.currentTournamentIndex];
+        const btn = document.querySelector('.hub-buttons button:first-child');
+        
         if (!nextT) {
             document.getElementById('hub-event').innerText = "Saison beendet!";
+            btn.innerText = "Nächste Saison starten";
+            btn.onclick = () => Career.startNextSeason();
             return;
         }
         let eventName = nextT.name;
         if (nextT.top8Only) eventName += rank <= 8 ? " (Qualifiziert!)" : " (Nicht qualifiziert)";
         document.getElementById('hub-event').innerText = eventName;
+        btn.innerText = "Zum Turnier";
+        btn.onclick = () => Career.enterTournament();
+    },
+
+    startNextSeason() {
+        this.currentTournamentIndex = 0;
+        this.players.forEach(p => p.points = Math.floor(p.points * 0.75)); // 25% Punkte-Verfall
+        this.updateHub();
     },
 
     updateRankingsTable() {
@@ -271,7 +296,7 @@ const Career = {
         this.players.forEach((p, index) => {
             const tr = document.createElement('tr');
             if (p.isPlayer) tr.classList.add('player-row');
-            tr.innerHTML = `<td>${index + 1}</td><td>${p.name}</td><td>${p.points}</td>`;
+            tr.innerHTML = `<td>${index + 1}</td><td>${getPlayerDisplayName(p)}</td><td>${p.points}</td>`;
             table.appendChild(tr);
         });
     },
@@ -327,12 +352,12 @@ const Career = {
         
         this.bracket.forEach(match => {
             const div = document.createElement('div');
-            let p1Name = match.p1 ? match.p1.name : "???";
-            let p2Name = match.p2 ? match.p2.name : "???";
+            let p1Name = match.p1 ? getPlayerDisplayName(match.p1) : "???";
+            let p2Name = match.p2 ? getPlayerDisplayName(match.p2) : "???";
             if (match.p1 && match.p1.isPlayer) p1Name = `<strong>${p1Name}</strong>`;
             if (match.p2 && match.p2.isPlayer) p2Name = `<strong>${p2Name}</strong>`;
             
-            let result = match.winner ? ` (Sieger: ${match.winner.name})` : "";
+            let result = match.winner ? ` (Sieger: ${getPlayerDisplayName(match.winner)})` : "";
             div.innerHTML = `Match ${matchCount}: ${p1Name} vs ${p2Name} <span style="color:#facc15">${result}</span>`;
             container.appendChild(div);
             matchCount++;
@@ -344,13 +369,14 @@ const Career = {
         document.getElementById('btn-leave-tournament').classList.toggle('hidden', playerInTournament);
         
         if (this.bracket.length === 1 && this.bracket[0].winner) {
-            document.getElementById('bracket-title').innerText = `Turniersieger: ${this.bracket[0].winner.name}!`;
+            document.getElementById('bracket-title').innerText = `Turniersieger!`;
         } else {
             document.getElementById('bracket-title').innerText = `Viertelfinale`;
         }
     },
 
     playNextMatch() {
+        currentMatchType = 'career';
         // Finde das Match des Spielers
         const match = this.bracket.find(m => !m.winner && (m.p1 === this.playerObj || m.p2 === this.playerObj));
         if (match) {
@@ -382,8 +408,10 @@ const Career = {
         if (winners.length === 1) {
             // Turnier zu Ende!
             winners[0].points += tournamentPoints; // Sieger bekommt volle Punkte
-            this.bracket[0].p1.points += tournamentPoints * 0.6; // Verlierer Finale
-            this.bracket[0].p2.points += tournamentPoints * 0.6;
+            winners[0].trophies += 1; // TURNIERSIEG! Pokal verleihen.
+            
+            let loser = this.bracket[0].p1 === winners[0] ? this.bracket[0].p2 : this.bracket[0].p1;
+            loser.points += Math.floor(tournamentPoints * 0.6); // Verlierer Finale
             
             this.currentTournamentIndex++;
             this.updateHub();
@@ -391,7 +419,7 @@ const Career = {
             // Verlierer der aktuellen Runde bekommen Punkte
             this.bracket.forEach(m => {
                 let loser = m.winner === m.p1 ? m.p2 : m.p1;
-                loser.points += tournamentPoints * (0.1 * winners.length); 
+                loser.points += Math.floor(tournamentPoints * (0.1 * winners.length)); 
             });
 
             // Neue Runde aufbauen
@@ -407,17 +435,18 @@ const Career = {
 };
 
 function startExhibition() {
+    currentMatchType = 'exhibition';
     const selectEl = document.getElementById('exhibition-difficulty');
     let diff = parseFloat(selectEl.value);
     let diffName = selectEl.options[selectEl.selectedIndex].text;
-    let randomOp = { name: `Bot (${diffName})`, skill: diff };
+    let randomOp = { name: `Bot (${diffName})`, skill: diff, trophies: 0 };
     start3DMatch(randomOp);
 }
 
 function start3DMatch(opponentObj) {
     currentAI = generateAIProfile(opponentObj.skill);
-    document.getElementById('ai-name-display').innerText = opponentObj.name;
-    document.getElementById('player-name-display').innerText = Career.playerObj ? Career.playerObj.name : "DU";
+    document.getElementById('ai-name-display').innerHTML = getPlayerDisplayName(opponentObj);
+    document.getElementById('player-name-display').innerHTML = Career.playerObj ? getPlayerDisplayName(Career.playerObj) : "DU";
     
     gameState.playerScore = 0;
     gameState.aiScore = 0;
@@ -448,8 +477,11 @@ window.addEventListener('mousemove', (e) => {
     lastMouseY = mouse.y;
 });
 
-window.addEventListener('click', () => {
+window.addEventListener('click', (e) => {
     if (appMode !== 'match') return;
+    // Blockiert fehlerhaftes Auslösen durch UI-Buttons
+    if (e.target.closest('.screen') || e.target.tagName === 'BUTTON') return;
+    
     if (audioCtx.state === 'suspended') audioCtx.resume();
     
     if (gameState.serving) {
@@ -487,7 +519,14 @@ function updateScore(winner) {
     if (gameState.playerScore >= 11 || gameState.aiScore >= 11) {
         // Siegbedingung (vereinfacht ohne 2-Punkte-Abstand Regel)
         showMessage(`MATCH<br><span style="font-size:0.5em; color:#fff">${winner === 'player' ? 'Du gewinnst!' : 'KI gewinnt!'}</span>`, 0);
-        setTimeout(resetGame, 3000);
+        setTimeout(() => {
+            document.getElementById('status-message').classList.add('hidden');
+            if (currentMatchType === 'career') {
+                Career.resolvePlayerMatch(winner === 'player');
+            } else {
+                UI.showScreen('screen-main'); // Exhibition Ende
+            }
+        }, 3000);
     } else {
         let msg = winner === 'player' ? 'Punkt für Dich' : 'Punkt für KI';
         let subMsg = gameState.server === 'player' ? 'Dein Aufschlag (Klick)' : 'KI schlägt auf';
