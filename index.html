@@ -3,8 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>State of the Art - 3D Table Tennis</title>
-    <!-- Three.js Library -->
+    <title>PRO TABLE TENNIS - Karriere</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <link rel="stylesheet" href="style.css">
 </head>
@@ -18,20 +17,20 @@
             <div id="ai-name-display" class="name-display">KI</div>
         </div>
     </div>
-    
+
     <div id="status-message" class="hidden">Tischtennis</div>
     <div id="game-container"></div>
 
-    <!-- NEU: Das Menü & Karriere System -->
     <div id="menu-layer">
-        <!-- Main Menu -->
+
+        <!-- Hauptmenü -->
         <div id="screen-main" class="screen active">
             <h1 class="game-title">PRO TABLE TENNIS</h1>
-            <button class="btn" onclick="UI.showScreen('screen-setup')">Karriere Starten</button>
-            <button class="btn" onclick="UI.showScreen('screen-exhibition')">Schnelles Spiel</button>
+            <button class="btn" onclick="UI.showScreen('screen-setup')">Karriere starten</button>
+            <button class="btn btn-secondary" onclick="UI.showScreen('screen-exhibition')">Schnelles Spiel</button>
         </div>
 
-        <!-- Exhibition Setup -->
+        <!-- Schnelles Spiel -->
         <div id="screen-exhibition" class="screen">
             <h2>Schnelles Spiel</h2>
             <select id="exhibition-difficulty" class="drop-down">
@@ -39,40 +38,94 @@
                 <option value="0.6" selected>Profi</option>
                 <option value="1.0">Gott</option>
             </select>
-            <button class="btn" onclick="startExhibition()">Match Starten</button>
-            <button class="btn" onclick="UI.showScreen('screen-main')">Zurück</button>
+            <button class="btn" onclick="startExhibition()">Match starten</button>
+            <button class="btn btn-secondary" onclick="UI.showScreen('screen-main')">Zurück</button>
         </div>
 
-        <!-- Career Setup -->
+        <!-- Karriere-Setup -->
         <div id="screen-setup" class="screen">
-            <h2>Erstelle deinen Spieler</h2>
+            <h2>Spieler erstellen</h2>
             <input type="text" id="input-player-name" placeholder="Dein Name..." maxlength="15">
             <select id="input-career-difficulty" class="drop-down">
                 <option value="0.7">Gegner-Level: Leicht</option>
                 <option value="1.0" selected>Gegner-Level: Normal</option>
                 <option value="1.3">Gegner-Level: Schwer</option>
             </select>
-            <button class="btn" onclick="Career.startNew()">Karriere Beginnen</button>
-            <button class="btn" onclick="UI.showScreen('screen-main')">Zurück</button>
+            <button class="btn" onclick="Career.startNew()">Karriere beginnen</button>
+            <button class="btn btn-secondary" onclick="UI.showScreen('screen-main')">Zurück</button>
         </div>
 
-        <!-- Career Hub -->
-        <div id="screen-hub" class="screen">
-            <h2 id="hub-title">Spielerzentrale</h2>
+        <!-- Karriere-Hub -->
+        <div id="screen-hub" class="screen screen-hub">
+            <div class="hub-header">
+                <h2 id="hub-title">Spielerzentrale</h2>
+                <div class="hub-season-badge">Saison <span id="hub-season">1</span></div>
+            </div>
+
             <div class="hub-stats">
-                <p>Weltranglisten-Platz: <strong id="hub-rank">-</strong></p>
-                <p>Punkte: <strong id="hub-points">0</strong></p>
-                <p>Nächstes Event: <strong id="hub-event">-</strong></p>
+                <div class="stat-row"><span>Weltrangliste</span><strong id="hub-rank">—</strong></div>
+                <div class="stat-row"><span>Punkte</span><strong id="hub-points">0</strong></div>
+                <div class="stat-row"><span>Form</span><span id="hub-form">—</span></div>
+                <div class="stat-row"><span>Nächstes Event</span><strong id="hub-event">—</strong></div>
             </div>
+
+            <div class="attributes-panel">
+                <div class="attr-row">
+                    <span class="attr-label">Schnelligkeit</span>
+                    <div class="attr-bar"><div class="attr-fill" id="attr-speed-fill"></div></div>
+                    <span class="attr-val" id="attr-speed-val">1.00</span>
+                </div>
+                <div class="attr-row">
+                    <span class="attr-label">Kraft</span>
+                    <div class="attr-bar"><div class="attr-fill" id="attr-power-fill"></div></div>
+                    <span class="attr-val" id="attr-power-val">1.00</span>
+                </div>
+                <div class="attr-row">
+                    <span class="attr-label">Präzision</span>
+                    <div class="attr-bar"><div class="attr-fill" id="attr-consistency-fill"></div></div>
+                    <span class="attr-val" id="attr-consistency-val">1.00</span>
+                </div>
+                <div class="attr-row">
+                    <span class="attr-label">Spin</span>
+                    <div class="attr-bar"><div class="attr-fill" id="attr-spin-fill"></div></div>
+                    <span class="attr-val" id="attr-spin-val">1.00</span>
+                </div>
+            </div>
+
             <div class="hub-buttons">
-                <button class="btn" onclick="Career.enterTournament()">Zum Turnier</button>
-                <button class="btn" onclick="UI.showCalendar()">Saison-Kalender</button>
-                <button class="btn" onclick="UI.showRankings()">Weltrangliste ansehen</button>
-                <button class="btn" style="background:#b91c1c" onclick="UI.showScreen('screen-main')">Speichern & Beenden</button>
+                <button id="btn-to-tournament" class="btn" onclick="Career.enterTournament()">Zum Turnier</button>
+                <button id="btn-train" class="btn btn-secondary" onclick="Career.showTraining()">Training</button>
+                <button class="btn btn-secondary" onclick="UI.showCalendar()">Saison-Kalender</button>
+                <button class="btn btn-secondary" onclick="UI.showRankings()">Weltrangliste</button>
+                <button class="btn btn-secondary" onclick="Career.showCareerOverview()">Karriere-Übersicht</button>
+                <button class="btn btn-danger" onclick="UI.showScreen('screen-main')">Speichern & Beenden</button>
             </div>
         </div>
 
-        <!-- Calendar -->
+        <!-- Training -->
+        <div id="screen-training" class="screen">
+            <h2>Training wählen</h2>
+            <p class="screen-subtitle">Wähle eine Trainingseinheit. Nur einmal pro Turnierabschnitt möglich.</p>
+            <div id="training-options" class="training-grid"></div>
+            <button class="btn btn-secondary" onclick="Career.skipTraining()">Überspringen</button>
+        </div>
+
+        <!-- Saisonabschluss -->
+        <div id="screen-season-summary" class="screen">
+            <h2 id="summary-title">Saison abgeschlossen!</h2>
+            <div id="summary-content" class="summary-content"></div>
+            <button class="btn" onclick="Career.startNextSeason()">Nächste Saison starten</button>
+            <button class="btn btn-secondary" onclick="UI.showScreen('screen-main')">Hauptmenü</button>
+        </div>
+
+        <!-- Karriere-Übersicht -->
+        <div id="screen-career-overview" class="screen">
+            <h2>Karriere-Statistiken</h2>
+            <div id="career-overview-content" class="career-overview"></div>
+            <button class="btn btn-secondary" onclick="UI.showScreen('screen-hub')">Zurück</button>
+        </div>
+
+        <!-- Kalender -->
         <div id="screen-calendar" class="screen">
             <h2>Turnier-Kalender</h2>
             <div class="table-container">
@@ -80,27 +133,28 @@
                     <tr><th>Turnier</th><th>Punkte</th><th>Status</th></tr>
                 </table>
             </div>
-            <button class="btn" onclick="UI.showScreen('screen-hub')">Zurück</button>
+            <button class="btn btn-secondary" onclick="UI.showScreen('screen-hub')">Zurück</button>
         </div>
 
-        <!-- Rankings -->
+        <!-- Weltrangliste -->
         <div id="screen-rankings" class="screen">
-            <h2>Offizielle Weltrangliste</h2>
+            <h2>Weltrangliste</h2>
             <div class="table-container">
                 <table id="rankings-table">
-                    <tr><th>Rang</th><th>Name</th><th>Punkte</th></tr>
+                    <tr><th>Rang</th><th>Name</th><th>Punkte</th><th>Titel</th></tr>
                 </table>
             </div>
-            <button class="btn" onclick="UI.showScreen('screen-hub')">Zurück</button>
+            <button class="btn btn-secondary" onclick="UI.showScreen('screen-hub')">Zurück</button>
         </div>
 
-        <!-- Tournament Bracket -->
+        <!-- Turnier-Bracket -->
         <div id="screen-bracket" class="screen">
-            <h2 id="bracket-title">Turnier</h2>
+            <h2 id="bracket-title">Viertelfinale</h2>
             <div id="bracket-view" class="bracket-container"></div>
-            <button id="btn-next-match" class="btn" onclick="Career.playNextMatch()">Nächstes Spiel</button>
-            <button id="btn-leave-tournament" class="btn hidden" onclick="UI.showScreen('screen-hub')">Turnier verlassen</button>
+            <button id="btn-next-match" class="btn" onclick="Career.playNextMatch()">Spiel starten</button>
+            <button id="btn-leave-tournament" class="btn btn-secondary hidden" onclick="Career.leaveTournament()">Zum Hub</button>
         </div>
+
     </div>
 
     <script src="game.js"></script>
