@@ -900,12 +900,19 @@ function updateScore(winner) {
     _setText('player-score', gameState.playerScore);
     _setText('ai-score', gameState.aiScore);
 
-    if (gameState.pointsPlayed % 2 === 0) {
+    // Aufschlagwechsel: im Einstand (Deuce) nach jedem Punkt, sonst alle 2 Punkte
+    const minScore  = Math.min(gameState.playerScore, gameState.aiScore);
+    const inDeuce   = minScore >= 10;
+    if (inDeuce || gameState.pointsPlayed % 2 === 0) {
         gameState.server = gameState.server === 'player' ? 'ai' : 'player';
     }
     gameState.isActive = false;
 
-    if (gameState.playerScore >= 11 || gameState.aiScore >= 11) {
+    // Einstand-Regel: Sieg erst bei mind. 11 Punkten UND 2 Punkte Vorsprung
+    const maxScore = Math.max(gameState.playerScore, gameState.aiScore);
+    const diff     = Math.abs(gameState.playerScore - gameState.aiScore);
+
+    if (maxScore >= 11 && diff >= 2) {
         const playerWon = gameState.playerScore > gameState.aiScore;
         showMessage(`MATCH<br><span style="font-size:0.5em;color:#fff">${playerWon ? 'Du gewinnst!' : 'KI gewinnt!'}</span>`, 0);
         setTimeout(() => {
@@ -917,7 +924,14 @@ function updateScore(winner) {
             }
         }, 3000);
     } else {
-        const msg    = winner === 'player' ? 'Punkt für Dich' : 'Punkt für KI';
+        let msg;
+        if (inDeuce && diff === 0) {
+            msg = '⚖️ Einstand!';
+        } else if (inDeuce && diff === 1) {
+            msg = winner === 'player' ? '✨ Vorteil Du' : '🎯 Vorteil KI';
+        } else {
+            msg = winner === 'player' ? 'Punkt für Dich' : 'Punkt für KI';
+        }
         const subMsg = gameState.server === 'player' ? 'Dein Aufschlag (Klick)' : 'KI schlägt auf';
         showMessage(`${msg}<br><span style="font-size:0.4em;color:#fff;border:none">${subMsg}</span>`, 0);
         setTimeout(() => {
